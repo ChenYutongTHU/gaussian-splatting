@@ -54,11 +54,16 @@ class ModelParams(ParamGroup):
         self._white_background = False
         self.data_device = "cuda"
         self.eval = False
+        self.llffhold = 8 
+        self.train_num_camera_ratio = -1. # if -1, use llffhold, train_num_camera_ratio = (1-1/self.llffhold)
         super().__init__(parser, "Loading Parameters", sentinel)
 
     def extract(self, args):
         g = super().extract(args)
         g.source_path = os.path.abspath(g.source_path)
+        for name, valu in vars(self).items():
+            if not hasattr(g, name):
+                setattr(g, name, valu)
         return g
 
 class PipelineParams(ParamGroup):

@@ -25,23 +25,24 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
     # Create zero tensor. We will use it to make pytorch return gradients of the 2D (screen-space) means
     screenspace_points = torch.zeros_like(pc.get_xyz, dtype=pc.get_xyz.dtype, requires_grad=True, device="cuda") + 0
     try:
-        screenspace_points.retain_grad()
+        screenspace_points.retain_grad() 
+        #intermediat gradient can be accessed after the backward pass
     except:
         pass
 
     # Set up rasterization configuration
-    tanfovx = math.tan(viewpoint_camera.FoVx * 0.5)
+    tanfovx = math.tan(viewpoint_camera.FoVx * 0.5) #Field of view
     tanfovy = math.tan(viewpoint_camera.FoVy * 0.5)
 
     raster_settings = GaussianRasterizationSettings(
-        image_height=int(viewpoint_camera.image_height),
-        image_width=int(viewpoint_camera.image_width),
+        image_height=int(viewpoint_camera.image_height), #546
+        image_width=int(viewpoint_camera.image_width), #979
         tanfovx=tanfovx,
         tanfovy=tanfovy,
         bg=bg_color,
-        scale_modifier=scaling_modifier,
-        viewmatrix=viewpoint_camera.world_view_transform,
-        projmatrix=viewpoint_camera.full_proj_transform,
+        scale_modifier=scaling_modifier, #1
+        viewmatrix=viewpoint_camera.world_view_transform, #4*4
+        projmatrix=viewpoint_camera.full_proj_transform, #4*4
         sh_degree=pc.active_sh_degree,
         campos=viewpoint_camera.camera_center,
         prefiltered=False,
@@ -79,19 +80,21 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
         else:
             shs = pc.get_features
     else:
-        colors_precomp = override_color
+        colors_precomp = override_color #None
 
     # Rasterize visible Gaussians to image, obtain their radii (on screen). 
     rendered_image, radii = rasterizer(
-        means3D = means3D,
-        means2D = means2D,
-        shs = shs,
-        colors_precomp = colors_precomp,
-        opacities = opacity,
-        scales = scales,
-        rotations = rotations,
-        cov3D_precomp = cov3D_precomp)
+        means3D = means3D, #[Yutong](N,3) requires_grad
+        means2D = means2D, #[Yutong?] zeros(N,2) requires_grad return gradients of the 2D (screen-space) means
+        shs = shs, #[Yutong] requires_grad (N,16,3)
+        colors_precomp = colors_precomp, # None
+        opacities = opacity, #[Yutong] requires_grad (N,1)
+        scales = scales, #[Yutong] requires_grad (N,3)
+        rotations = rotations, #[Yutong] requires_grad (N,4)
+        cov3D_precomp = cov3D_precomp) # None
+    # Call submodules/diff-gaussian-rasterization/diff_gaussian_rasterization/__init__.py:211
 
+    # Output rendered_image (3,H,W), radii (N)
     # Those Gaussians that were frustum culled or had a radius of 0 were not visible.
     # They will be excluded from value updates used in the splitting criteria.
     return {"render": rendered_image,

@@ -48,6 +48,7 @@ def getWorld2View2(R, t, translate=np.array([.0, .0, .0]), scale=1.0):
     Rt = np.linalg.inv(C2W)
     return np.float32(Rt)
 
+# [GPT] Transforming 3D coordinates into normalized device coordinates while accounting for perspective
 def getProjectionMatrix(znear, zfar, fovX, fovY):
     tanHalfFovY = math.tan((fovY / 2))
     tanHalfFovX = math.tan((fovX / 2))
@@ -68,6 +69,7 @@ def getProjectionMatrix(znear, zfar, fovX, fovY):
     P[3, 2] = z_sign
     P[2, 2] = z_sign * zfar / (zfar - znear)
     P[2, 3] = -(zfar * znear) / (zfar - znear)
+
     return P
 
 def fov2focal(fov, pixels):

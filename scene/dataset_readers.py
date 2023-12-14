@@ -18,6 +18,7 @@ from scene.colmap_loader import read_extrinsics_text, read_intrinsics_text, qvec
 from utils.graphics_utils import getWorld2View2, focal2fov, fov2focal
 import numpy as np
 import json
+import math
 from pathlib import Path
 from plyfile import PlyData, PlyElement
 from utils.sh_utils import SH2RGB
@@ -43,12 +44,12 @@ class SceneInfo(NamedTuple):
     ply_path: str
 
 def getNerfppNorm(cam_info):
-    def get_center_and_diag(cam_centers):
-        cam_centers = np.hstack(cam_centers)
-        avg_cam_center = np.mean(cam_centers, axis=1, keepdims=True)
-        center = avg_cam_center
-        dist = np.linalg.norm(cam_centers - center, axis=0, keepdims=True)
-        diagonal = np.max(dist)
+    def get_center_and_diag(cam_centers): #[(3,1)]
+        cam_centers = np.hstack(cam_centers) #(3,N)
+        avg_cam_center = np.mean(cam_centers, axis=1, keepdims=True) #the center of the scene?
+        center = avg_cam_center #(3,1)
+        dist = np.linalg.norm(cam_centers - center, axis=0, keepdims=True) #[N]
+        diagonal = np.max(dist) 
         return center.flatten(), diagonal
 
     cam_centers = []
@@ -59,7 +60,7 @@ def getNerfppNorm(cam_info):
         cam_centers.append(C2W[:3, 3:4])
 
     center, diagonal = get_center_and_diag(cam_centers)
-    radius = diagonal * 1.1
+    radius = diagonal * 1.1 #The maximum distance from camera to the scene
 
     translate = -center
 
@@ -106,8 +107,8 @@ def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder):
 
 def fetchPly(path):
     plydata = PlyData.read(path)
-    vertices = plydata['vertex']
-    positions = np.vstack([vertices['x'], vertices['y'], vertices['z']]).T
+    vertices = plydata['vertex'] #PlyElement
+    positions = np.vstack([vertices['x'], vertices['y'], vertices['z']]).T #(N, 3)
     colors = np.vstack([vertices['red'], vertices['green'], vertices['blue']]).T / 255.0
     normals = np.vstack([vertices['nx'], vertices['ny'], vertices['nz']]).T
     return BasicPointCloud(points=positions, colors=colors, normals=normals)
@@ -129,12 +130,12 @@ def storePly(path, xyz, rgb):
     ply_data = PlyData([vertex_element])
     ply_data.write(path)
 
-def readColmapSceneInfo(path, images, eval, llffhold=8):
+def readColmapSceneInfo(path, images, eval, llffhold=8, train_num_camera_ratio=-1):
     try:
         cameras_extrinsic_file = os.path.join(path, "sparse/0", "images.bin")
         cameras_intrinsic_file = os.path.join(path, "sparse/0", "cameras.bin")
-        cam_extrinsics = read_extrinsics_binary(cameras_extrinsic_file)
-        cam_intrinsics = read_intrinsics_binary(cameras_intrinsic_file)
+        cam_extrinsics = read_extrinsics_binary(cameras_extrinsic_file) #dict
+        cam_intrinsics = read_intrinsics_binary(cameras_intrinsic_file) #? xys
     except:
         cameras_extrinsic_file = os.path.join(path, "sparse/0", "images.txt")
         cameras_intrinsic_file = os.path.join(path, "sparse/0", "cameras.txt")
@@ -142,17 +143,24 @@ def readColmapSceneInfo(path, images, eval, llffhold=8):
         cam_intrinsics = read_intrinsics_text(cameras_intrinsic_file)
 
     reading_dir = "images" if images == None else images
+    #read R\T\FovX-Y\Image-RGB
     cam_infos_unsorted = readColmapCameras(cam_extrinsics=cam_extrinsics, cam_intrinsics=cam_intrinsics, images_folder=os.path.join(path, reading_dir))
     cam_infos = sorted(cam_infos_unsorted.copy(), key = lambda x : x.image_name)
 
     if eval:
-        train_cam_infos = [c for idx, c in enumerate(cam_infos) if idx % llffhold != 0]
-        test_cam_infos = [c for idx, c in enumerate(cam_infos) if idx % llffhold == 0]
+        if train_num_camera_ratio == -1:
+            train_cam_infos = [c for idx, c in enumerate(cam_infos) if idx % llffhold != 0]
+            test_cam_infos = [c for idx, c in enumerate(cam_infos) if idx % llffhold == 0]
+        else:
+            train_cam_step = math.floor(1./train_num_camera_ratio)
+            train_cam_infos = [c for idx, c in enumerate(cam_infos) if idx % train_cam_step == 0]
+            test_cam_infos = [c for idx, c in enumerate(cam_infos) if idx % train_cam_step != 0]            
+
     else:
         train_cam_infos = cam_infos
         test_cam_infos = []
 
-    nerf_normalization = getNerfppNorm(train_cam_infos)
+    nerf_normalization = getNerfppNorm(train_cam_infos) #perhaps used in Nerm later
 
     ply_path = os.path.join(path, "sparse/0/points3D.ply")
     bin_path = os.path.join(path, "sparse/0/points3D.bin")
@@ -218,12 +226,18 @@ def readCamerasFromTransforms(path, transformsfile, white_background, extension=
             
     return cam_infos
 
-def readNerfSyntheticInfo(path, white_background, eval, extension=".png"):
-    print("Reading Training Transforms")
+def readNerfSyntheticInfo(path, white_background, eval, extension=".png",train_num_camera_ratio=1):
+    print("Reading Training Transforms ", end=' ')
     train_cam_infos = readCamerasFromTransforms(path, "transforms_train.json", white_background, extension)
-    print("Reading Test Transforms")
+
+    if train_num_camera_ratio!=1:
+        step = math.floor(1/train_num_camera_ratio)
+        train_cam_infos = train_cam_infos[::step]
+    print(f'#={len(train_cam_infos)}')
+    print("Reading Test Transforms ", end=' ')
     test_cam_infos = readCamerasFromTransforms(path, "transforms_test.json", white_background, extension)
-    
+    print(f'#={len(test_cam_infos)}')
+
     if not eval:
         train_cam_infos.extend(test_cam_infos)
         test_cam_infos = []
