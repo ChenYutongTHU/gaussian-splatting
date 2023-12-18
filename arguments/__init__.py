@@ -56,6 +56,7 @@ class ModelParams(ParamGroup):
         self.eval = False
         self.llffhold = 8 
         self.train_num_camera_ratio = -1. # if -1, use llffhold, train_num_camera_ratio = (1-1/self.llffhold)
+        self.split_file = ''
         super().__init__(parser, "Loading Parameters", sentinel)
 
     def extract(self, args):

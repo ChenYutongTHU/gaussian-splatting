@@ -82,7 +82,7 @@ def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder):
         uid = intr.id
         R = np.transpose(qvec2rotmat(extr.qvec))
         T = np.array(extr.tvec)
-
+        
         if intr.model=="SIMPLE_PINHOLE":
             focal_length_x = intr.params[0]
             FovY = focal2fov(focal_length_x, height)
@@ -130,7 +130,7 @@ def storePly(path, xyz, rgb):
     ply_data = PlyData([vertex_element])
     ply_data.write(path)
 
-def readColmapSceneInfo(path, images, eval, llffhold=8, train_num_camera_ratio=-1):
+def readColmapSceneInfo(path, images, eval, llffhold=8, train_num_camera_ratio=-1, split_file=None):
     try:
         cameras_extrinsic_file = os.path.join(path, "sparse/0", "images.bin")
         cameras_intrinsic_file = os.path.join(path, "sparse/0", "cameras.bin")
@@ -148,13 +148,23 @@ def readColmapSceneInfo(path, images, eval, llffhold=8, train_num_camera_ratio=-
     cam_infos = sorted(cam_infos_unsorted.copy(), key = lambda x : x.image_name)
 
     if eval:
-        if train_num_camera_ratio == -1:
-            train_cam_infos = [c for idx, c in enumerate(cam_infos) if idx % llffhold != 0]
-            test_cam_infos = [c for idx, c in enumerate(cam_infos) if idx % llffhold == 0]
+        if split_file:
+            name2cam_infos = {c.image_name: c for c in cam_infos}
+            with open(split_file) as json_file:
+                contents = json.load(json_file) #['train', 'test']
+                train_cam_infos = [name2cam_infos[image_name] for image_name in contents['train']]
+                test_cam_infos = {}
+                for test_k, test_ids in contents.items():
+                    if 'test' in test_k:
+                        test_cam_infos[test_k] = [name2cam_infos[image_name] for image_name in test_ids] 
         else:
-            train_cam_step = math.floor(1./train_num_camera_ratio)
-            train_cam_infos = [c for idx, c in enumerate(cam_infos) if idx % train_cam_step == 0]
-            test_cam_infos = [c for idx, c in enumerate(cam_infos) if idx % train_cam_step != 0]            
+            if train_num_camera_ratio == -1:
+                train_cam_infos = [c for idx, c in enumerate(cam_infos) if idx % llffhold != 0]
+                test_cam_infos = [c for idx, c in enumerate(cam_infos) if idx % llffhold == 0]
+            else:
+                train_cam_step = math.floor(1./train_num_camera_ratio)
+                train_cam_infos = [c for idx, c in enumerate(cam_infos) if idx % train_cam_step == 0]
+                test_cam_infos = [c for idx, c in enumerate(cam_infos) if idx % train_cam_step != 0]            
 
     else:
         train_cam_infos = cam_infos

@@ -46,7 +46,9 @@ def render_sets(dataset : ModelParams, iteration : int, pipeline : PipelineParam
              render_set(dataset.model_path, "train", scene.loaded_iter, scene.getTrainCameras(), gaussians, pipeline, background)
 
         if not skip_test:
-             render_set(dataset.model_path, "test", scene.loaded_iter, scene.getTestCameras(), gaussians, pipeline, background)
+            if type(scene.test_cameras) == dict:
+                for test_name in scene.test_cameras.keys():
+                    render_set(dataset.model_path, test_name, scene.loaded_iter, scene.getTestCameras(test_name=test_name), gaussians, pipeline, background)
 
 if __name__ == "__main__":
     # Set up command line argument parser
