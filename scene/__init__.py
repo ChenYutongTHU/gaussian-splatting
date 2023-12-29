@@ -38,7 +38,9 @@ class Scene:
 
 
         if os.path.exists(os.path.join(args.source_path, "sparse")): #readColmapSceneInfo
-            scene_info = sceneLoadTypeCallbacks["Colmap"](args.source_path, args.images, args.eval, args.llffhold, args.train_num_camera_ratio, args.split_file)
+            scene_info = sceneLoadTypeCallbacks["Colmap"](args.source_path, args.images, args.eval, args.llffhold, 
+                                                          args.train_num_camera_ratio, args.split_file,
+                                                          args.focal_length_scale)
         elif os.path.exists(os.path.join(args.source_path, "transforms_train.json")):
             print("Found transforms_train.json file, assuming Blender data set!")
             scene_info = sceneLoadTypeCallbacks["Blender"](args.source_path, args.white_background, args.eval, train_num_camera_ratio=args.train_num_camera_ratio)
@@ -51,7 +53,11 @@ class Scene:
             json_cams = []
             camlist = []
             if scene_info.test_cameras:
-                camlist.extend(scene_info.test_cameras)
+                if type(scene_info.test_cameras) == dict:
+                    for key, value in scene_info.test_cameras.items():
+                        camlist.extend(value)
+                else:
+                    camlist.extend(scene_info.test_cameras)
             if scene_info.train_cameras:
                 camlist.extend(scene_info.train_cameras)
             for id, cam in enumerate(camlist):
@@ -61,7 +67,8 @@ class Scene:
 
         if shuffle:
             random.shuffle(scene_info.train_cameras)  # Multi-res consistent random shuffling
-            random.shuffle(scene_info.test_cameras)  # Multi-res consistent random shuffling
+            # [Yutong] I comment this. Why do you need to shuffle test cameras?
+            #random.shuffle(scene_info.test_cameras)  # Multi-res consistent random shuffling
 
         self.cameras_extent = scene_info.nerf_normalization["radius"]
 

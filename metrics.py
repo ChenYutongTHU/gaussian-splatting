@@ -48,7 +48,7 @@ def evaluate(model_paths):
         per_view_dict[scene_dir] = {}
         full_dict_polytopeonly[scene_dir] = {}
         per_view_dict_polytopeonly[scene_dir] = {}
-        for test_dir in glob(f'{scene_dir}/test*')+glob(f'{scene_dir}/train*'):
+        for test_dir in glob(f'{scene_dir}/train*')+glob(f'{scene_dir}/test*'):
             split = test_dir.split('/')[-1]
             print("Split:", split)
             full_dict[scene_dir][split] = {}
@@ -64,7 +64,11 @@ def evaluate(model_paths):
 
                 method_dir = Path(test_dir) / method
                 gt_dir = method_dir/ "gt"
+                if not os.path.isdir(gt_dir):
+                    gt_dir = method_dir/ "gt_-1"
                 renders_dir = method_dir / "renders"
+                if not os.path.isdir(renders_dir):
+                    renders_dir = method_dir / "test_preds_-1" #quick and dirty solution for the case where we have no renders but test_preds
                 renders, gts, image_names = readImages(renders_dir, gt_dir)
 
                 ssims = []

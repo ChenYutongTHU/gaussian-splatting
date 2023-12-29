@@ -41,8 +41,8 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
         tanfovy=tanfovy,
         bg=bg_color,
         scale_modifier=scaling_modifier, #1
-        viewmatrix=viewpoint_camera.world_view_transform, #4*4
-        projmatrix=viewpoint_camera.full_proj_transform, #4*4
+        viewmatrix=viewpoint_camera.world_view_transform, #4*4 W2C
+        projmatrix=viewpoint_camera.full_proj_transform, #4*4 W2NDC [-1,1]
         sh_degree=pc.active_sh_degree,
         campos=viewpoint_camera.camera_center,
         prefiltered=False,
