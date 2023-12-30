@@ -130,13 +130,16 @@ def storePly(path, xyz, rgb):
     ply_data = PlyData([vertex_element])
     ply_data.write(path)
 
-def readColmapSceneInfo(path, images, eval, llffhold=8, train_num_camera_ratio=-1, split_file=None, focal_length_scale=1.0):
+def readColmapSceneInfo(path, images, eval, llffhold=8, train_num_camera_ratio=-1, split_file=None, 
+                        focal_length_scale=1.0, minus_depth=0.0):
     try:
         cameras_extrinsic_file = os.path.join(path, "sparse/0", "images.bin")
         cameras_intrinsic_file = os.path.join(path, "sparse/0", "cameras.bin")
         cam_extrinsics = read_extrinsics_binary(cameras_extrinsic_file) #dict
         cam_intrinsics = read_intrinsics_binary(cameras_intrinsic_file) #? xys
         cam_intrinsics[1].params[0:2] *= focal_length_scale
+        for k in cam_extrinsics:
+            cam_extrinsics[k].tvec[-1] -= minus_depth
     except:
         cameras_extrinsic_file = os.path.join(path, "sparse/0", "images.txt")
         cameras_intrinsic_file = os.path.join(path, "sparse/0", "cameras.txt")
