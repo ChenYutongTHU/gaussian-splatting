@@ -74,7 +74,14 @@ class PipelineParams(ParamGroup):
         self.convert_SHs_python = False
         self.compute_cov3D_python = False
         self.debug = False
+        self.filter2D_off = False
         super().__init__(parser, "Pipeline Parameters")
+    def extract(self, args):
+        g = super().extract(args)
+        for name, valu in vars(self).items():
+            if not hasattr(g, name):
+                setattr(g, name, valu)
+        return g
 
 class OptimizationParams(ParamGroup):
     def __init__(self, parser):

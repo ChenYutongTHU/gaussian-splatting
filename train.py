@@ -28,7 +28,7 @@ try:
 except ImportError:
     TENSORBOARD_FOUND = False
 
-def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoint_iterations, checkpoint, debug_from):
+def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoint_iterations, checkpoint, debug_from, show_wandb):
     first_iter = 0
     tb_writer = prepare_output_and_logger(dataset)
     gaussians = GaussianModel(dataset.sh_degree)
@@ -85,12 +85,13 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
 
         render_pkg = render(viewpoint_cam, gaussians, pipe, bg)
         image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
+        radii_min = render_pkg["radii_min"]
 
         # Loss
         gt_image = viewpoint_cam.original_image.cuda()
         Ll1 = l1_loss(image, gt_image)
         loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim(image, gt_image))
-        loss.backward()
+        loss.backward() #at this point, the gradient of the loss is computed.
 
         iter_end.record()
 
@@ -105,26 +106,73 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
 
             # Log and save
             training_report(tb_writer, iteration, Ll1, loss, l1_loss, iter_start.elapsed_time(iter_end), testing_iterations, scene, render, (pipe, background))
-            if (iteration in saving_iterations):
+            if (iteration in saving_iterations) or iteration==first_iter:
                 print("\n[ITER {}] Saving Gaussians".format(iteration))
                 scene.save(iteration)
 
             # Densification
+
+            if (iteration==0 or iteration % opt.densification_interval == 0) and show_wandb:
+                wandb.log({"loss": loss.item(), "loss_l1": Ll1.item(), "loss_ssim": (
+                    1.0 - ssim(image, gt_image)).item()}, step=iteration)
+                
+                def wandb_histogram(data, name, step):
+                    table = wandb.Table(
+                        data=[[d] for d in data.detach().cpu().numpy()], columns=["value"])
+                    wandb.log({name: wandb.plot.histogram(
+                        table, "value", title=name)}, step=step)
+                def wandb_percentile(data, name, step, percentiles=[0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 95]):
+                    data = sorted(data.detach().cpu().numpy())
+                    N = len(data)
+                    for p in percentiles:
+                        n = min(int(N*p//100), N-1)
+                        wandb.log({name+f'_percentile{p}%': data[n]}, step=step)
+                        
+                wandb_percentile(torch.max(gaussians.get_scaling, dim=1).values, "scale-max", iteration)
+                wandb_percentile(torch.min(gaussians.get_scaling, dim=1).values, "scale-min", iteration)
+                wandb_percentile(torch.median(gaussians.get_scaling, dim=1).values, "scale-median", iteration)
+                wandb_percentile(torch.mean(gaussians.get_scaling, dim=1), "scale-mean", iteration)
+                wandb_percentile(torch.max(gaussians.get_scaling, dim=1).values/torch.min(gaussians.get_scaling, dim=1).values, "scale-max-div-min", iteration)
+                
+                wandb_percentile(gaussians._scaling.grad.view(-1), "scaling_grad", iteration)
+                wandb_percentile(gaussians.get_opacity.view(-1), "opacity", iteration)
+                wandb_percentile(gaussians.max_radii2D[visibility_filter].view(-1), "visible-max_radii2D", iteration)
+                wandb_percentile(gaussians.min_radii2D[visibility_filter].view(-1), "visibile-min_radii2D", iteration)
+
+                wandb_percentile(radii[visibility_filter].view(-1),"visible-radii2D (the max lambda)", iteration)
+                wandb_percentile(radii_min[visibility_filter].view(-1),"visible-radii2D (the min lambda)", iteration)
+                wandb_percentile(render_pkg["radiiBeforeFilter"][visibility_filter].view(-1),"visible-radii2D-before-filter (the max lambda)", iteration)
+                wandb_percentile(render_pkg["radii_minBeforeFilter"][visibility_filter].view(-1),"visible-radii2D-before-filter (the min lambda)", iteration)                
+                
+                #wandb_percentile(torch.norm(viewspace_point_tensor.grad[:, :2], dim=-1), "mean2D_grad", iteration)
+                grads = gaussians.xyz_gradient_accum / gaussians.denom
+                grads[grads.isnan()] = 0
+                wandb_percentile(grads, "average-acc-mean2D-grad", iteration)
+                wandb.log({"number-gaussians": gaussians.get_xyz.shape[0],
+                           "densify_grad_threshold": opt.densify_grad_threshold,
+                           "split-or-clone_threshold": gaussians.percent_dense*scene.cameras_extent}, step=iteration)
+                
             if iteration < opt.densify_until_iter:
-                # Keep track of max radii in image-space for pruning
+                # Keep track of max radii in image-space for pruning (from all different views, find the largest one)
                 gaussians.max_radii2D[visibility_filter] = torch.max(gaussians.max_radii2D[visibility_filter], radii[visibility_filter])
+                gaussians.min_radii2D[visibility_filter] = torch.min(gaussians.min_radii2D[visibility_filter], radii_min[visibility_filter])
+                # max_radii2D will be reset to zero after each densification 
+
                 gaussians.add_densification_stats(viewspace_point_tensor, visibility_filter)
 
                 if iteration > opt.densify_from_iter and iteration % opt.densification_interval == 0:
                     size_threshold = 20 if iteration > opt.opacity_reset_interval else None
+                    print('Densify and prune at iteration {}, size_threshod={}'.format(iteration, size_threshold))
                     # size_threshold max_screen_size ?
-                    gaussians.densify_and_prune(opt.densify_grad_threshold, 0.005, scene.cameras_extent, size_threshold)
-
+                    stats = gaussians.densify_and_prune(opt.densify_grad_threshold, 0.005, scene.cameras_extent, size_threshold)
+                    if show_wandb:
+                        wandb.log(stats, step=iteration)
                 #[Yutong] In the paper:
                 # An effective way to moderate the increase in the number of Gaussians is to
                 # set the 𝛼 value close to zero every 𝑁 = 3000 iterations
                 if iteration % opt.opacity_reset_interval == 0 or (dataset.white_background and iteration == opt.densify_from_iter):
                     gaussians.reset_opacity()
+
 
             # Optimizer step
             if iteration < opt.iterations:
@@ -212,6 +260,7 @@ if __name__ == "__main__":
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--checkpoint_iterations", nargs="+", type=int, default=[])
     parser.add_argument("--start_checkpoint", type=str, default = None)
+    parser.add_argument("--wandb", action="store_true", default=False)
     args = parser.parse_args(sys.argv[1:])
     args.save_iterations.append(args.iterations)
     
@@ -220,10 +269,20 @@ if __name__ == "__main__":
     # Initialize system state (RNG)
     safe_state(args.quiet)
 
+    if args.wandb:
+        import wandb
+        wandb_run = wandb.init(project="gaussian", config=args, dir=args.model_path) #resume=?
+        wandb.run.name = args.model_path.split("/")[-1]
+        wandb.config.update(args, ) #notes=, tag=['','']
+
+
+
     # Start GUI server, configure and run training
     network_gui.init(args.ip, args.port)
     torch.autograd.set_detect_anomaly(args.detect_anomaly)
-    training(lp.extract(args), op.extract(args), pp.extract(args), args.test_iterations, args.save_iterations, args.checkpoint_iterations, args.start_checkpoint, args.debug_from)
+    training(lp.extract(args), op.extract(args), pp.extract(args), 
+             args.test_iterations, args.save_iterations, args.checkpoint_iterations, args.start_checkpoint, args.debug_from,
+             args.wandb)
 
     # All done
     print("\nTraining complete.")

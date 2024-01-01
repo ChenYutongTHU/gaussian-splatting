@@ -51,6 +51,7 @@ class GaussianModel:
         self._rotation = torch.empty(0)
         self._opacity = torch.empty(0)
         self.max_radii2D = torch.empty(0) #?
+        self.min_radii2D = torch.empty(0) #?
         self.xyz_gradient_accum = torch.empty(0) #..
         self.denom = torch.empty(0) #?
         self.optimizer = None
@@ -147,6 +148,7 @@ class GaussianModel:
         self._rotation = nn.Parameter(rots.requires_grad_(True)) # identity
         self._opacity = nn.Parameter(opacities.requires_grad_(True)) #inverse sigma of 0.1
         self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda") #0??
+        self.min_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda") #0??
 
     def training_setup(self, training_args):
         self.percent_dense = training_args.percent_dense #0.01?
@@ -307,6 +309,7 @@ class GaussianModel:
 
         self.denom = self.denom[valid_points_mask]
         self.max_radii2D = self.max_radii2D[valid_points_mask]
+        self.min_radii2D = self.min_radii2D[valid_points_mask]
 
     def cat_tensors_to_optimizer(self, tensors_dict):
         optimizable_tensors = {}
@@ -351,7 +354,8 @@ class GaussianModel:
 
         self.xyz_gradient_accum = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
         self.denom = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
-        self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
+        self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda") #assigned value in train.py
+        self.min_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda") #assigned value in train.py
 
     def densify_and_split(self, grads, grad_threshold, scene_extent, N=2):
         n_init_points = self.get_xyz.shape[0]
@@ -380,9 +384,12 @@ class GaussianModel:
 
         prune_filter = torch.cat((selected_pts_mask, torch.zeros(N * selected_pts_mask.sum(), device="cuda", dtype=bool)))
         self.prune_points(prune_filter)
+        print('Densify and split {} points'.format(selected_pts_mask.sum()), end =' ')
+        print('Total: {} -> {}'.format(n_init_points, self.get_xyz.shape[0]))
 
     def densify_and_clone(self, grads, grad_threshold, scene_extent):
         # Extract points that satisfy the gradient condition
+        N0 = self.get_xyz.shape[0]
         selected_pts_mask = torch.where(torch.norm(grads, dim=-1) >= grad_threshold, True, False)
         selected_pts_mask = torch.logical_and(selected_pts_mask,
                                               torch.max(self.get_scaling, dim=1).values <= self.percent_dense*scene_extent)
@@ -396,26 +403,54 @@ class GaussianModel:
         new_rotation = self._rotation[selected_pts_mask]
 
         self.densification_postfix(new_xyz, new_features_dc, new_features_rest, new_opacities, new_scaling, new_rotation)
-
+        print('Densify and clone {} points'.format(selected_pts_mask.sum()), end=' ')
+        print('Total: {} -> {}'.format(N0, self.get_xyz.shape[0]))
+    
     def densify_and_prune(self, max_grad, min_opacity, extent, max_screen_size):
+        stats = {'densify': 0, 'densify_split': 0, 'densify_clone': 0,
+                 'prune': 0,'prune_small-opacity':0,'prune_large-radius':0,'prune_large-scale':0,}
         grads = self.xyz_gradient_accum / self.denom
         grads[grads.isnan()] = 0.0
+        N0 = self.get_xyz.shape[0]
+        print(f'if >grad_threshold={max_grad} then densify')
+        print(f'if max_scale> {self.percent_dense}*{extent:.2f}={self.percent_dense*extent:.3f} then split, else clone')
 
         self.densify_and_clone(grads, max_grad, extent)
+        stats['densify_clone'] = self.get_xyz.shape[0] - N0
+        N0 = self.get_xyz.shape[0]
+
         self.densify_and_split(grads, max_grad, extent)
+        stats['densify_split'] = self.get_xyz.shape[0] - N0
+        stats['densify'] = stats['densify_clone'] + stats['densify_split']
+        stats['densify_ratio'] = stats['densify'] / N0
+        N0 = self.get_xyz.shape[0]
 
         prune_mask = (self.get_opacity < min_opacity).squeeze() # min_opacity 0.005
+        stats['prune_small-opacity'] = prune_mask.sum()
         if max_screen_size: 
-            big_points_vs = self.max_radii2D > max_screen_size
-            big_points_ws = self.get_scaling.max(dim=1).values > 0.1 * extent
+            big_points_vs = self.max_radii2D > max_screen_size #max_radii2D is the 3*max(sigma_axis-1, sigma_axis-2) in 2D pixel space
+            big_points_ws = self.get_scaling.max(dim=1).values > 0.1 * extent # scaling is the 3D variance
             # prune gaussians 
             # with opacity < 0.005 
             #or radii > max_screen_size (20)? 20m?
             #or scaling > 0.1*scene_radius
+            print('Prune points {} due to small opacity | {} due to large radii | {} due to large scaling'.format(
+                (prune_mask).sum(),
+                (big_points_vs).sum(),
+                (big_points_ws).sum()))
+            stats['prune_large-radius'] = big_points_vs.sum()
+            stats['prune_large-scale'] = big_points_ws.sum()
             prune_mask = torch.logical_or(torch.logical_or(prune_mask, big_points_vs), big_points_ws)
+        else:
+            print('Prune points {} due to small opacity'.format((prune_mask).sum()),)
+        stats['prune'] = prune_mask.sum()
+        stats['prune_ratio'] = stats['prune'] / N0
         self.prune_points(prune_mask)
 
+        print('Prune total {} points'.format((prune_mask).sum()), end=' ')
         torch.cuda.empty_cache()
+        print('Points #{} -> #{}'.format(N0,self.get_xyz.shape[0]))
+        return stats
 
     def add_densification_stats(self, viewspace_point_tensor, update_filter):
         self.xyz_gradient_accum[update_filter] += torch.norm(viewspace_point_tensor.grad[update_filter,:2], dim=-1, keepdim=True)
