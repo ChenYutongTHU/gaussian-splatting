@@ -82,7 +82,7 @@ class Scene:
         for resolution_scale in resolution_scales: #[1.0]
             print('Resolution_scale: ', resolution_scale)
             print("Loading Training Cameras", end=' ')
-            self.train_cameras[resolution_scale] = cameraList_from_camInfos(scene_info.train_cameras, resolution_scale, args)
+            self.train_cameras[resolution_scale] = cameraList_from_camInfos(scene_info.train_cameras, resolution_scale, args) #resize 4K images by 1/2.52, to 1.6K, 
             print(f"#={len(self.train_cameras[resolution_scale])}")
             if isinstance(scene_info.test_cameras, list):
                 self.test_cameras['test'][resolution_scale] = cameraList_from_camInfos(scene_info.test_cameras, resolution_scale, args)

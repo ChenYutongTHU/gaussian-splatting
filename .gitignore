@@ -9,3 +9,5 @@ screenshots
 organize_nerf.py
 sample_images
 scripts
+*.ipynb
+wandb/

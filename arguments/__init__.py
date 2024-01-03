@@ -12,6 +12,7 @@
 from argparse import ArgumentParser, Namespace
 import sys
 import os
+import warnings
 
 class GroupParams:
     pass
@@ -75,12 +76,17 @@ class PipelineParams(ParamGroup):
         self.compute_cov3D_python = False
         self.debug = False
         self.filter2D_off = False
+        self.compensate = False
+        
+
         super().__init__(parser, "Pipeline Parameters")
     def extract(self, args):
         g = super().extract(args)
         for name, valu in vars(self).items():
             if not hasattr(g, name):
                 setattr(g, name, valu)
+        if self.compensate:
+            warnings.warn("Compensate is set to True, the current code does not support it.", UserWarning)
         return g
 
 class OptimizationParams(ParamGroup):

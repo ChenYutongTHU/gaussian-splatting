@@ -48,6 +48,7 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
         prefiltered=False,
         debug=pipe.debug,
         filter2D=not pipe.filter2D_off,
+        compensate=pipe.compensate,
     )
 
     rasterizer = GaussianRasterizer(raster_settings=raster_settings)
@@ -84,7 +85,7 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
         colors_precomp = override_color #None
 
     # Rasterize visible Gaussians to image, obtain their radii (on screen). 
-    rendered_image, radii, radii_min, radiiBeforeFilter, radii_minBeforeFilter = rasterizer(
+    rendered_image, gss, radii, radii_min, radiiBeforeFilter, radii_minBeforeFilter = rasterizer(
         means3D = means3D, #[Yutong](N,3) requires_grad
         means2D = means2D, #[Yutong?] zeros(N,2) requires_grad return gradients of the 2D (screen-space) means
         shs = shs, #[Yutong] requires_grad (N,16,3)
@@ -101,4 +102,5 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
     return {"render": rendered_image,
             "viewspace_points": screenspace_points,
             "visibility_filter" : radii > 0,
-            "radii": radii, 'radii_min': radii_min, 'radiiBeforeFilter': radiiBeforeFilter, 'radii_minBeforeFilter': radii_minBeforeFilter}
+            "radii": radii, 'radii_min': radii_min, 'radiiBeforeFilter': radiiBeforeFilter, 'radii_minBeforeFilter': radii_minBeforeFilter,
+            "gss": gss}
