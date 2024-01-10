@@ -36,12 +36,16 @@ class Scene:
                 self.loaded_iter = load_iteration
             print("Loading trained model at iteration {}".format(self.loaded_iter))
 
-
-        if os.path.exists(os.path.join(args.source_path, "sparse")): #readColmapSceneInfo
+        if args.blender_train_json != '':
+            print(f"blender_train_json={args.blender_train_json}, assuming Blender data set!")
+            scene_info = sceneLoadTypeCallbacks["Blender"](args.source_path, args.white_background, args.eval, train_num_camera_ratio=args.train_num_camera_ratio, 
+                                                           blender_train_json=args.blender_train_json,
+                                                           blender_test_jsons=args.blender_test_jsons, dataset_type=args.dataset_type)    
+        elif os.path.exists(os.path.join(args.source_path, "sparse")): #readColmapSceneInfo
             scene_info = sceneLoadTypeCallbacks["Colmap"](args.source_path, args.images, args.eval, args.llffhold, 
                                                           args.train_num_camera_ratio, args.split_file,
                                                           args.focal_length_scale, args.minus_depth)
-        elif os.path.exists(os.path.join(args.source_path, "transforms_train.json")):
+        elif os.path.exists(os.path.join(args.source_path, "transforms_train.json")): #readBlenderSceneInfo
             print("Found transforms_train.json file, assuming Blender data set!")
             scene_info = sceneLoadTypeCallbacks["Blender"](args.source_path, args.white_background, args.eval, train_num_camera_ratio=args.train_num_camera_ratio)
         else:
@@ -82,14 +86,14 @@ class Scene:
         for resolution_scale in resolution_scales: #[1.0]
             print('Resolution_scale: ', resolution_scale)
             print("Loading Training Cameras", end=' ')
-            self.train_cameras[resolution_scale] = cameraList_from_camInfos(scene_info.train_cameras, resolution_scale, args) #resize 4K images by 1/2.52, to 1.6K, 
+            self.train_cameras[resolution_scale] = cameraList_from_camInfos(scene_info.train_cameras, resolution_scale, args, shuffle=shuffle) #resize 4K images by 1/2.52, to 1.6K, 
             print(f"#={len(self.train_cameras[resolution_scale])}")
             if isinstance(scene_info.test_cameras, list):
-                self.test_cameras['test'][resolution_scale] = cameraList_from_camInfos(scene_info.test_cameras, resolution_scale, args)
+                self.test_cameras['test'][resolution_scale] = cameraList_from_camInfos(scene_info.test_cameras, resolution_scale, args, shuffle=False)
                 print("Loading Test Cameras", f"#={len(self.test_cameras)}")
             elif isinstance(scene_info.test_cameras, dict):
                 for key, value in scene_info.test_cameras.items():
-                    self.test_cameras[key][resolution_scale] = cameraList_from_camInfos(value, resolution_scale, args)
+                    self.test_cameras[key][resolution_scale] = cameraList_from_camInfos(value, resolution_scale, args, shuffle=False)
                     print("Loading Test Cameras", f"Length of {key}: {len(self.test_cameras[key][resolution_scale])}")
 
         if self.loaded_iter:

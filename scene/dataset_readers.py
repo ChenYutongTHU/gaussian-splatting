@@ -23,6 +23,7 @@ from pathlib import Path
 from plyfile import PlyData, PlyElement
 from utils.sh_utils import SH2RGB
 from scene.gaussian_model import BasicPointCloud
+from tqdm import tqdm
 
 class CameraInfo(NamedTuple):
     uid: int
@@ -35,6 +36,7 @@ class CameraInfo(NamedTuple):
     image_name: str
     width: int
     height: int
+    white_background: bool = False
 
 class SceneInfo(NamedTuple):
     point_cloud: BasicPointCloud
@@ -197,17 +199,25 @@ def readColmapSceneInfo(path, images, eval, llffhold=8, train_num_camera_ratio=-
                            ply_path=ply_path)
     return scene_info
 
-def readCamerasFromTransforms(path, transformsfile, white_background, extension=".png"):
+def readCamerasFromTransforms(path, transformsfile, white_background, extension=".png", train_num_camera_ratio=1, dataset_type="list"):
     cam_infos = []
 
     with open(os.path.join(path, transformsfile)) as json_file:
         contents = json.load(json_file)
-        fovx = contents["camera_angle_x"]
+        fovx = contents.get("camera_angle_x", None)
 
         frames = contents["frames"]
-        for idx, frame in enumerate(frames):
+        if train_num_camera_ratio!=1:
+            step = math.floor(1/train_num_camera_ratio)
+            frames = frames[::step]
+            
+        for idx, frame in tqdm(enumerate(frames)):
+            if extension in frame["file_path"]:
+                frame["file_path"] = frame["file_path"].replace(extension, "")
             cam_name = os.path.join(path, frame["file_path"] + extension)
 
+            if 'camera_angle_x' in frame:
+                fovx = frame['camera_angle_x'] # Different fov for each image
             # NeRF 'transform_matrix' is a camera-to-world transform
             c2w = np.array(frame["transform_matrix"])
             # change from OpenGL/Blender camera axes (Y up, Z back) to COLMAP (Y down, Z forward)
@@ -219,39 +229,60 @@ def readCamerasFromTransforms(path, transformsfile, white_background, extension=
             T = w2c[:3, 3]
 
             image_path = os.path.join(path, cam_name)
-            image_name = Path(cam_name).stem
-            image = Image.open(image_path)
+            if 'image_name' in frame:
+                image_name = os.path.splitext(frame['image_name'])[0]
+            else:
+                image_name = Path(cam_name).stem
+            
+            if dataset_type.lower() == 'list':
+                image = Image.open(image_path)
 
-            im_data = np.array(image.convert("RGBA"))
+                im_data = np.array(image.convert("RGBA"))
 
-            bg = np.array([1,1,1]) if white_background else np.array([0, 0, 0])
+                bg = np.array([1,1,1]) if white_background else np.array([0, 0, 0])
 
-            norm_data = im_data / 255.0
-            arr = norm_data[:,:,:3] * norm_data[:, :, 3:4] + bg * (1 - norm_data[:, :, 3:4])
-            image = Image.fromarray(np.array(arr*255.0, dtype=np.byte), "RGB")
+                norm_data = im_data / 255.0
+                arr = norm_data[:,:,:3] * norm_data[:, :, 3:4] + bg * (1 - norm_data[:, :, 3:4])
+                image = Image.fromarray(np.array(arr*255.0, dtype=np.byte), "RGB")
+                width=image.size[0]
+                height=image.size[1]
+                fovy = focal2fov(fov2focal(fovx, width), height) #We assume the same width, height for all images
+                FovY = fovy 
+                FovX = fovx
+            else:
+                image = None 
+                width, height = None, None
+                FovY = None
+                FovX = fovx
 
-            fovy = focal2fov(fov2focal(fovx, image.size[0]), image.size[1])
-            FovY = fovy 
-            FovX = fovx
 
-            cam_infos.append(CameraInfo(uid=idx, R=R, T=T, FovY=FovY, FovX=FovX, image=image,
-                            image_path=image_path, image_name=image_name, width=image.size[0], height=image.size[1]))
+            cam_infos.append(CameraInfo(uid=idx, R=R, T=T,FovY=FovY, FovX=FovX, image=image,
+                            image_path=image_path, image_name=image_name, width=width, height=height, white_background=white_background))
             
     return cam_infos
 
-def readNerfSyntheticInfo(path, white_background, eval, extension=".png",train_num_camera_ratio=1):
-    print("Reading Training Transforms ", end=' ')
-    train_cam_infos = readCamerasFromTransforms(path, "transforms_train.json", white_background, extension)
+def readNerfSyntheticInfo(path, white_background, eval, extension=".png",train_num_camera_ratio=1, 
+                        blender_train_json=None,
+                        blender_test_jsons=None, dataset_type="list"):
+    train_json_file = blender_train_json if blender_train_json is not None else "transforms_train.json"
+    print(f"Reading Training Transforms from {train_json_file} ", end=' ')
+    train_cam_infos = readCamerasFromTransforms(
+        path, train_json_file, white_background, extension, train_num_camera_ratio, dataset_type)
+    print(f'#={len(train_cam_infos)}(train_num_camera_ratio={train_num_camera_ratio})')
 
-    if train_num_camera_ratio!=1:
-        step = math.floor(1/train_num_camera_ratio)
-        train_cam_infos = train_cam_infos[::step]
-    print(f'#={len(train_cam_infos)}')
-    print("Reading Test Transforms ", end=' ')
-    test_cam_infos = readCamerasFromTransforms(path, "transforms_test.json", white_background, extension)
-    print(f'#={len(test_cam_infos)}')
+    test_json_files = blender_test_jsons.split(',') if blender_test_jsons is not None else ["transforms_test.json"]
+    print(f"Reading Test Transforms from {test_json_files}", end=' ')
+    test_cam_infos = {}
+    if test_json_files != [""]:
+        for test_json_file in test_json_files:
+            tag = test_json_file.replace('.json', '')
+            test_cam_infos[tag] = readCamerasFromTransforms(
+                path, test_json_file, white_background, extension, dataset_type=dataset_type)
+            print(f'{test_json_file}, #={len(test_cam_infos[tag])}')
 
     if not eval:
+        if test_cam_infos == {}:
+            test_cam_infos = []
         train_cam_infos.extend(test_cam_infos)
         test_cam_infos = []
 

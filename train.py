@@ -44,10 +44,16 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
     iter_start = torch.cuda.Event(enable_timing = True)
     iter_end = torch.cuda.Event(enable_timing = True)
 
-    viewpoint_stack = None
+    if dataset.dataset_type == "list":
+        viewpoint_stack = None
+    else:
+        viewpoint_loader = scene.getTrainCameras()
+        viewpoint_iter = iter(viewpoint_loader)
     ema_loss_for_log = 0.0
     progress_bar = tqdm(range(first_iter, opt.iterations), desc="Training progress")
     first_iter += 1
+
+    
     for iteration in range(first_iter, opt.iterations + 1):        
         if network_gui.conn == None:
             network_gui.try_connect()
@@ -73,9 +79,21 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             gaussians.oneupSHdegree()
 
         # Pick a random Camera
-        if not viewpoint_stack:
-            viewpoint_stack = scene.getTrainCameras().copy()
-        viewpoint_cam = viewpoint_stack.pop(randint(0, len(viewpoint_stack)-1))
+        if dataset.dataset_type == "list":
+            if not viewpoint_stack:
+                viewpoint_stack = scene.getTrainCameras().copy()
+            viewpoint_cam = viewpoint_stack.pop(randint(0, len(viewpoint_stack)-1))
+        elif dataset.dataset_type == "loader":
+            try:
+                viewpoint_cam = next(viewpoint_iter)
+                viewpoint_cam.move_to_device(args.data_device)
+            except StopIteration:
+                viewpoint_iter = iter(viewpoint_loader)
+                viewpoint_cam = next(viewpoint_iter)
+                viewpoint_cam.move_to_device(args.data_device)
+        else:
+            assert False, "Could not recognize dataset type!"
+
 
         # Render
         if (iteration - 1) == debug_from:
@@ -214,7 +232,11 @@ def training_report(tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_i
     # Report test and samples of training set
     if iteration in testing_iterations:
         torch.cuda.empty_cache()
-        validation_configs = [{'name': 'train', 'cameras' : [scene.getTrainCameras()[idx % len(scene.getTrainCameras())] for idx in range(5, 30, 5)]}]
+        if args.dataset_type == "list":
+            validation_configs = [{'name': 'train', 'cameras' : [scene.getTrainCameras()[idx % len(scene.getTrainCameras())] for idx in range(5, 30, 5)]}]
+        else:
+            validation_configs = [{'name': 'train', 
+                                   'cameras': [scene.getTrainCameras().dataset[idx % len(scene.getTrainCameras())] for idx in range(5, 30, 5)]}]
         if type(scene.test_cameras) == dict:
             for test_name in scene.test_cameras.keys():
                 validation_configs.append({'name': test_name, 'cameras': scene.getTestCameras(test_name=test_name)})
@@ -225,6 +247,8 @@ def training_report(tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_i
                 l1_test = 0.0
                 psnr_test = 0.0
                 for idx, viewpoint in enumerate(config['cameras']):
+                    if args.dataset_type == 'loader':
+                        viewpoint.move_to_device(args.data_device)
                     image = torch.clamp(renderFunc(viewpoint, scene.gaussians, *renderArgs)["render"], 0.0, 1.0)
                     gt_image = torch.clamp(viewpoint.original_image.to("cuda"), 0.0, 1.0)
                     if tb_writer and (idx < 5):
@@ -281,7 +305,7 @@ if __name__ == "__main__":
     network_gui.init(args.ip, args.port)
     torch.autograd.set_detect_anomaly(args.detect_anomaly)
     training(lp.extract(args), op.extract(args), pp.extract(args), 
-             args.test_iterations, args.save_iterations, args.checkpoint_iterations, args.start_checkpoint, args.debug_from,
+             [1]+args.test_iterations, args.save_iterations, args.checkpoint_iterations, args.start_checkpoint, args.debug_from,
              args.wandb)
 
     # All done

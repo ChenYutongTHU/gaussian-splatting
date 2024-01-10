@@ -21,7 +21,7 @@ from argparse import ArgumentParser
 from arguments import ModelParams, PipelineParams, get_combined_args
 from gaussian_renderer import GaussianModel
 
-def render_set(model_path, name, iteration, views, gaussians, pipeline, background):
+def render_set(model_path, name, iteration, views, gaussians, pipeline, background, save_as_idx=False):
     render_path = os.path.join(model_path, name, "ours_{}".format(iteration), "renders")
     gts_path = os.path.join(model_path, name, "ours_{}".format(iteration), "gt")
 
@@ -32,14 +32,19 @@ def render_set(model_path, name, iteration, views, gaussians, pipeline, backgrou
         # For DEBUG
         # if idx!=54:
         #     continue
+        view.move_to_device(args.data_device)
         result = render(view, gaussians, pipeline, background)
         rendering = result["render"]
         gt = view.original_image[0:3, :, :]
-        torchvision.utils.save_image(rendering, os.path.join(render_path, '{0:05d}'.format(idx) + ".png"))
-        torchvision.utils.save_image(gt, os.path.join(gts_path, '{0:05d}'.format(idx) + ".png"))
+        if save_as_idx:
+            torchvision.utils.save_image(rendering, os.path.join(render_path, '{0:05d}'.format(idx) + ".png"))
+            torchvision.utils.save_image(gt, os.path.join(gts_path, '{0:05d}'.format(idx) + ".png"))
+        else:
+            torchvision.utils.save_image(rendering, os.path.join(render_path, view.image_name + ".png"))
+            torchvision.utils.save_image(gt, os.path.join(gts_path, view.image_name + ".png"))
         # torch.save(result["gss"].cpu(), os.path.join(render_path, 'gss_{0:05d}'.format(idx) + ".pt"))
 
-def render_sets(dataset : ModelParams, iteration : int, pipeline : PipelineParams, skip_train : bool, skip_test : bool):
+def render_sets(dataset : ModelParams, iteration : int, pipeline : PipelineParams, skip_train : bool, skip_test : bool, save_as_idx : bool):
     with torch.no_grad():
         gaussians = GaussianModel(dataset.sh_degree)
         scene = Scene(dataset, gaussians, load_iteration=iteration, shuffle=False)
@@ -54,7 +59,7 @@ def render_sets(dataset : ModelParams, iteration : int, pipeline : PipelineParam
             if type(scene.test_cameras) == dict:
                 for test_name in scene.test_cameras.keys():
                     render_set(dataset.model_path, f"{test_name}-{dataset.focal_length_scale}_minus-depth-{dataset.minus_depth:.2f}", scene.loaded_iter,
-                               scene.getTestCameras(test_name=test_name), gaussians, pipeline, background)
+                               scene.getTestCameras(test_name=test_name), gaussians, pipeline, background, save_as_idx)
 
 if __name__ == "__main__":
     # Set up command line argument parser
@@ -65,10 +70,11 @@ if __name__ == "__main__":
     parser.add_argument("--skip_train", action="store_true")
     parser.add_argument("--skip_test", action="store_true")
     parser.add_argument("--quiet", action="store_true")
+    parser.add_argument("--save_as_idx", action="store_true")
     args = get_combined_args(parser)
     print("Rendering " + args.model_path)
 
     # Initialize system state (RNG)
     safe_state(args.quiet)
 
-    render_sets(model.extract(args), args.iteration, pipeline.extract(args), args.skip_train, args.skip_test)
+    render_sets(model.extract(args), args.iteration, pipeline.extract(args), args.skip_train, args.skip_test, args.save_as_idx)
