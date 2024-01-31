@@ -384,8 +384,8 @@ class GaussianModel:
 
         prune_filter = torch.cat((selected_pts_mask, torch.zeros(N * selected_pts_mask.sum(), device="cuda", dtype=bool)))
         self.prune_points(prune_filter)
-        print('Densify and split {} points'.format(selected_pts_mask.sum()), end =' ')
-        print('Total: {} -> {}'.format(n_init_points, self.get_xyz.shape[0]))
+        #print('Densify and split {} points'.format(selected_pts_mask.sum()), end =' ')
+        #print('Total: {} -> {}'.format(n_init_points, self.get_xyz.shape[0]))
 
     def densify_and_clone(self, grads, grad_threshold, scene_extent):
         # Extract points that satisfy the gradient condition
@@ -403,8 +403,8 @@ class GaussianModel:
         new_rotation = self._rotation[selected_pts_mask]
 
         self.densification_postfix(new_xyz, new_features_dc, new_features_rest, new_opacities, new_scaling, new_rotation)
-        print('Densify and clone {} points'.format(selected_pts_mask.sum()), end=' ')
-        print('Total: {} -> {}'.format(N0, self.get_xyz.shape[0]))
+        #print('Densify and clone {} points'.format(selected_pts_mask.sum()), end=' ')
+        #print('Total: {} -> {}'.format(N0, self.get_xyz.shape[0]))
     
     def densify_and_prune(self, max_grad, min_opacity, extent, max_screen_size):
         stats = {'densify': 0, 'densify_split': 0, 'densify_clone': 0,
@@ -412,8 +412,8 @@ class GaussianModel:
         grads = self.xyz_gradient_accum / self.denom
         grads[grads.isnan()] = 0.0
         N0 = self.get_xyz.shape[0]
-        print(f'if >grad_threshold={max_grad} then densify')
-        print(f'if max_scale> {self.percent_dense}*{extent:.2f}={self.percent_dense*extent:.3f} then split, else clone')
+        #print(f'if >grad_threshold={max_grad} then densify')
+        #print(f'if max_scale> {self.percent_dense}*{extent:.2f}={self.percent_dense*extent:.3f} then split, else clone')
 
         self.densify_and_clone(grads, max_grad, extent)
         stats['densify_clone'] = self.get_xyz.shape[0] - N0
@@ -434,22 +434,23 @@ class GaussianModel:
             # with opacity < 0.005 
             #or radii > max_screen_size (20)? 20m?
             #or scaling > 0.1*scene_radius
-            print('Prune points {} due to small opacity | {} due to large radii | {} due to large scaling'.format(
-                (prune_mask).sum(),
-                (big_points_vs).sum(),
-                (big_points_ws).sum()))
+            # #print('Prune points {} due to small opacity | {} due to large radii | {} due to large scaling'.format(
+            #     (prune_mask).sum(),
+            #     (big_points_vs).sum(),
+            #     (big_points_ws).sum()))
             stats['prune_large-radius'] = big_points_vs.sum()
             stats['prune_large-scale'] = big_points_ws.sum()
             prune_mask = torch.logical_or(torch.logical_or(prune_mask, big_points_vs), big_points_ws)
         else:
-            print('Prune points {} due to small opacity'.format((prune_mask).sum()),)
+            pass
+            #print('Prune points {} due to small opacity'.format((prune_mask).sum()),)
         stats['prune'] = prune_mask.sum()
         stats['prune_ratio'] = stats['prune'] / N0
         self.prune_points(prune_mask)
 
-        print('Prune total {} points'.format((prune_mask).sum()), end=' ')
+        #print('Prune total {} points'.format((prune_mask).sum()), end=' ')
         torch.cuda.empty_cache()
-        print('Points #{} -> #{}'.format(N0,self.get_xyz.shape[0]))
+        #print('Points #{} -> #{}'.format(N0,self.get_xyz.shape[0]))
         return stats
 
     def add_densification_stats(self, viewspace_point_tensor, update_filter):

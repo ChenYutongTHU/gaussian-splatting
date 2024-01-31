@@ -99,9 +99,9 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         if (iteration - 1) == debug_from:
             pipe.debug = True
 
-        bg = torch.rand((3), device="cuda") if opt.random_background else background
-
-        render_pkg = render(viewpoint_cam, gaussians, pipe, bg)
+        #bg = torch.rand((3), device="cuda") if opt.random_background else background
+        background = torch.tensor(viewpoint_cam.bg,device='cuda',dtype=torch.float32) 
+        render_pkg = render(viewpoint_cam, gaussians, pipe, background)
         image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
         radii_min = render_pkg["radii_min"]
 
@@ -130,7 +130,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
 
             # Densification
 
-            if (iteration==0 or iteration % opt.densification_interval == 0) and show_wandb:
+            if (iteration==0 or iteration % (opt.densification_interval*10) == 0) and show_wandb:
                 wandb.log({"loss": loss.item(), "loss_l1": Ll1.item(), "loss_ssim": (
                     1.0 - ssim(image, gt_image)).item()}, step=iteration)
                 
@@ -155,7 +155,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                 wandb_percentile(gaussians._scaling.grad.view(-1), "scaling_grad", iteration)
                 wandb_percentile(gaussians.get_opacity.view(-1), "opacity", iteration)
                 wandb_percentile(gaussians.max_radii2D[visibility_filter].view(-1), "visible-max_radii2D", iteration)
-                wandb_percentile(gaussians.min_radii2D[visibility_filter].view(-1), "visibile-min_radii2D", iteration)
+                wandb_percentile(gaussians.min_radii2D[visibility_filter].view(-1), "visible-min_radii2D", iteration)
 
                 wandb_percentile(radii[visibility_filter].view(-1),"visible-radii2D (the max lambda)", iteration)
                 wandb_percentile(radii_min[visibility_filter].view(-1),"visible-radii2D (the min lambda)", iteration)
@@ -178,9 +178,9 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
 
                 gaussians.add_densification_stats(viewspace_point_tensor, visibility_filter)
 
-                if iteration > opt.densify_from_iter and iteration % opt.densification_interval == 0:
+                if iteration > opt.densify_from_iter and iteration % (10*opt.densification_interval) == 0:
                     size_threshold = 20 if iteration > opt.opacity_reset_interval else None
-                    print('Densify and prune at iteration {}, size_threshod={}'.format(iteration, size_threshold))
+                    # print('Densify and prune at iteration {}, size_threshod={}'.format(iteration, size_threshold))
                     # size_threshold max_screen_size ?
                     stats = gaussians.densify_and_prune(opt.densify_grad_threshold, 0.005, scene.cameras_extent, size_threshold)
                     if show_wandb:

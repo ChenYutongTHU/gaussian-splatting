@@ -30,11 +30,15 @@ class ParamGroup:
             if shorthand:
                 if t == bool:
                     group.add_argument("--" + key, ("-" + key[0:1]), default=value, action="store_true")
+                elif t == list:
+                    group.add_argument("--" + key, ("-" + key[0:1]), default=value, nargs="+")
                 else:
                     group.add_argument("--" + key, ("-" + key[0:1]), default=value, type=t)
             else:
                 if t == bool:
                     group.add_argument("--" + key, default=value, action="store_true")
+                elif t == list:
+                    group.add_argument("--" + key, default=value, nargs="+")
                 else:
                     group.add_argument("--" + key, default=value, type=t)
 
@@ -53,6 +57,7 @@ class ModelParams(ParamGroup):
         self._images = "images"
         self._resolution = -1
         self._white_background = False
+        self.rnd_background = False
         self.data_device = "cuda"
         self.eval = False
         self.llffhold = 8 
@@ -63,6 +68,7 @@ class ModelParams(ParamGroup):
         self.focal_length_scale = 1.0
         self.minus_depth = 0.0
         self.dataset_type = "list"
+        self.blender_bbox = [1.3]
         super().__init__(parser, "Loading Parameters", sentinel)
 
     def extract(self, args):

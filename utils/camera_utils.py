@@ -21,10 +21,17 @@ from utils.graphics_utils import getWorld2View2, focal2fov, fov2focal
 
 WARNED = False
 class CameraDataset(Dataset):
-    def __init__(self, cam_infos, resolution_scale, args):
+    def __init__(self, cam_infos, resolution_scale, args, is_training):
         self.cam_infos = cam_infos
         self.resolution_scale = resolution_scale
         self.args = args
+
+        if args.rnd_background and is_training:
+            self.bg_color = 'rnd'
+        elif args.white_background:
+            self.bg_color = np.array([1,1,1]) 
+        else:
+            self.bg_color = np.array([0, 0, 0])
 
     def __len__(self):
         return len(self.cam_infos)
@@ -32,16 +39,20 @@ class CameraDataset(Dataset):
     def __getitem__(self, idx):
         image = Image.open(self.cam_infos[idx].image_path)
         im_data = np.array(image.convert("RGBA"))
-        bg = np.array([1,1,1]) if self.cam_infos[idx].white_background else np.array([0, 0, 0])
+        #bg = np.array([1,1,1]) if self.cam_infos[idx].white_background else np.array([0, 0, 0])
+        if type(self.bg_color)==str and self.bg_color == 'rnd':
+            bg = np.random.rand(3)
+        else:
+            bg = self.bg_color
         norm_data = im_data / 255.0
         arr = norm_data[:,:,:3] * norm_data[:, :, 3:4] + bg * (1 - norm_data[:, :, 3:4])
         image = Image.fromarray(np.array(arr*255.0, dtype=np.byte), "RGB")
         return loadCam(self.args, idx, self.cam_infos[idx], self.resolution_scale, 
-                       image=image, data_device='cpu')
+                       image=image, data_device='cpu', bg=bg)
 
 
 
-def loadCam(args, id, cam_info, resolution_scale, image=None, data_device=None):
+def loadCam(args, id, cam_info, resolution_scale, bg, image=None, data_device=None):
     if image is None:
         image = cam_info.image 
         FovY = cam_info.FovY
@@ -83,7 +94,7 @@ def loadCam(args, id, cam_info, resolution_scale, image=None, data_device=None):
     return Camera(colmap_id=cam_info.uid, R=cam_info.R, T=cam_info.T, 
                   FoVx=cam_info.FovX, FoVy=FovY, 
                   image=gt_image, gt_alpha_mask=loaded_mask,
-                  image_name=cam_info.image_name, uid=id, data_device=data_device)
+                  image_name=cam_info.image_name, uid=id, data_device=data_device, bg=bg)
 
 
 def Camera_Collate_fn(batch):
@@ -96,7 +107,7 @@ def cameraList_from_camInfos(cam_infos, resolution_scale, args, shuffle=False):
             camera_list.append(loadCam(args, id, c, resolution_scale))
         return camera_list
     elif args.dataset_type.lower() == 'loader':
-        dataset = CameraDataset(cam_infos, resolution_scale, args)
+        dataset = CameraDataset(cam_infos, resolution_scale, args, is_training=shuffle)
         dataloader = DataLoader(dataset, batch_size=1, shuffle=shuffle, collate_fn=Camera_Collate_fn, num_workers=4)
         return dataloader
 

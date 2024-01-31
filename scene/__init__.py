@@ -40,7 +40,8 @@ class Scene:
             print(f"blender_train_json={args.blender_train_json}, assuming Blender data set!")
             scene_info = sceneLoadTypeCallbacks["Blender"](args.source_path, args.white_background, args.eval, train_num_camera_ratio=args.train_num_camera_ratio, 
                                                            blender_train_json=args.blender_train_json,
-                                                           blender_test_jsons=args.blender_test_jsons, dataset_type=args.dataset_type)    
+                                                           blender_test_jsons=args.blender_test_jsons, dataset_type=args.dataset_type,
+                                                           blender_bbox=args.blender_bbox)    
         elif os.path.exists(os.path.join(args.source_path, "sparse")): #readColmapSceneInfo
             scene_info = sceneLoadTypeCallbacks["Colmap"](args.source_path, args.images, args.eval, args.llffhold, 
                                                           args.train_num_camera_ratio, args.split_file,
@@ -54,6 +55,7 @@ class Scene:
         if not self.loaded_iter:
             with open(scene_info.ply_path, 'rb') as src_file, open(os.path.join(self.model_path, "input.ply") , 'wb') as dest_file:
                 dest_file.write(src_file.read())
+       
             json_cams = []
             camlist = []
             if scene_info.test_cameras:

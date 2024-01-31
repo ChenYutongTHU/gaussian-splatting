@@ -234,7 +234,7 @@ def readCamerasFromTransforms(path, transformsfile, white_background, extension=
             else:
                 image_name = Path(cam_name).stem
             
-            if dataset_type.lower() == 'list':
+            if dataset_type.lower() == 'list' or idx==0:
                 image = Image.open(image_path)
 
                 im_data = np.array(image.convert("RGBA"))
@@ -249,10 +249,14 @@ def readCamerasFromTransforms(path, transformsfile, white_background, extension=
                 fovy = focal2fov(fov2focal(fovx, width), height) #We assume the same width, height for all images
                 FovY = fovy 
                 FovX = fovx
-            else:
+            
+            if dataset_type.lower() == 'loader':
+                if idx==0:
+                    print('Currently we assume all images have the same height and width')
+                    image
                 image = None 
-                width, height = None, None
-                FovY = None
+                #width, height = None, None
+                FovY = focal2fov(fov2focal(fovx, width), height)
                 FovX = fovx
 
 
@@ -263,7 +267,7 @@ def readCamerasFromTransforms(path, transformsfile, white_background, extension=
 
 def readNerfSyntheticInfo(path, white_background, eval, extension=".png",train_num_camera_ratio=1, 
                         blender_train_json=None,
-                        blender_test_jsons=None, dataset_type="list"):
+                        blender_test_jsons=None, dataset_type="list", blender_bbox=[1.3]):
     train_json_file = blender_train_json if blender_train_json is not None else "transforms_train.json"
     print(f"Reading Training Transforms from {train_json_file} ", end=' ')
     train_cam_infos = readCamerasFromTransforms(
@@ -287,7 +291,6 @@ def readNerfSyntheticInfo(path, white_background, eval, extension=".png",train_n
         test_cam_infos = []
 
     nerf_normalization = getNerfppNorm(train_cam_infos)
-
     ply_path = os.path.join(path, "points3d.ply")
     if not os.path.exists(ply_path):
         # Since this data set has no colmap data, we start with random points
@@ -295,11 +298,20 @@ def readNerfSyntheticInfo(path, white_background, eval, extension=".png",train_n
         print(f"Generating random point cloud ({num_pts})...")
         
         # We create random points inside the bounds of the synthetic Blender scenes
-        xyz = np.random.random((num_pts, 3)) * 2.6 - 1.3
+        if len(blender_bbox)==0:
+            radius = blender_bbox[0]
+            xyz = np.random.random((num_pts, 3)) * (2*radius) - radius
+        else:
+            x_max, y_max, z_max, x_min, y_min, z_min = blender_bbox
+            D = np.array([float(x_max)-float(x_min), float(y_max)-float(y_min), float(z_max)-float(z_min)])
+            xyz_min = np.array([float(x_min), float(y_min), float(z_min)])
+            xyz = np.random.random((num_pts, 3)) * D + xyz_min
         shs = np.random.random((num_pts, 3)) / 255.0
         pcd = BasicPointCloud(points=xyz, colors=SH2RGB(shs), normals=np.zeros((num_pts, 3)))
 
-        storePly(ply_path, xyz, SH2RGB(shs) * 255)
+        #By Yutong, we refrain from storing the point cloud of random pcd in the data dir as points3d.ply
+        ply_path = os.path.join(path, "random_bbox.ply")
+        storePly(ply_path, xyz, SH2RGB(shs) * 255) 
     try:
         pcd = fetchPly(ply_path)
     except:
