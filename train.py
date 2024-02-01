@@ -178,12 +178,12 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
 
                 gaussians.add_densification_stats(viewspace_point_tensor, visibility_filter)
 
-                if iteration > opt.densify_from_iter and iteration % (10*opt.densification_interval) == 0:
+                if iteration > opt.densify_from_iter and iteration % (opt.densification_interval) == 0:
                     size_threshold = 20 if iteration > opt.opacity_reset_interval else None
                     # print('Densify and prune at iteration {}, size_threshod={}'.format(iteration, size_threshold))
                     # size_threshold max_screen_size ?
                     stats = gaussians.densify_and_prune(opt.densify_grad_threshold, 0.005, scene.cameras_extent, size_threshold)
-                    if show_wandb:
+                    if show_wandb and iteration % (opt.densification_interval*10) == 0:
                         wandb.log(stats, step=iteration)
                 #[Yutong] In the paper:
                 # An effective way to moderate the increase in the number of Gaussians is to
