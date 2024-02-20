@@ -293,6 +293,17 @@ if __name__ == "__main__":
     # Initialize system state (RNG)
     safe_state(args.quiet)
 
+
+    # Start GUI server, configure and run training
+    while True:
+        try:
+            network_gui.init(args.ip, args.port)
+            break
+        except Exception as e:
+            print(e)
+            print("Change port to {}".format(args.port + 1))
+            args.port += 1
+            
     if args.wandb:
         import wandb
         wandb_run = wandb.init(project="gaussian", config=args, dir=args.model_path) #resume=?
@@ -301,8 +312,6 @@ if __name__ == "__main__":
 
 
 
-    # Start GUI server, configure and run training
-    network_gui.init(args.ip, args.port)
     torch.autograd.set_detect_anomaly(args.detect_anomaly)
     training(lp.extract(args), op.extract(args), pp.extract(args), 
              [1]+args.test_iterations, args.save_iterations, args.checkpoint_iterations, args.start_checkpoint, args.debug_from,
