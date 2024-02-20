@@ -104,7 +104,10 @@ def cameraList_from_camInfos(cam_infos, resolution_scale, args, shuffle=False):
     if args.dataset_type.lower() == 'list': #preload image
         camera_list = []
         for id, c in tqdm(enumerate(cam_infos)):
-            camera_list.append(loadCam(args, id, c, resolution_scale))
+            #image's bg is already set in cam_infos. Leave bg as default color (black)
+            #Unused in SuGar at the moment
+            bg = np.array([1, 1, 1]) if c.white_background else np.array([0, 0, 0])
+            camera_list.append(loadCam(args, id, c, resolution_scale, bg=bg))
         return camera_list
     elif args.dataset_type.lower() == 'loader':
         dataset = CameraDataset(cam_infos, resolution_scale, args, is_training=shuffle)

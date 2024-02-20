@@ -267,7 +267,8 @@ def readCamerasFromTransforms(path, transformsfile, white_background, extension=
 
 def readNerfSyntheticInfo(path, white_background, eval, extension=".png",train_num_camera_ratio=1, 
                         blender_train_json=None,
-                        blender_test_jsons=None, dataset_type="list", blender_bbox=[1.3]):
+                        blender_test_jsons=None, dataset_type="list", blender_bbox=[1.3],
+                        sample_from_pcd=''): #blender_bbox is the radius of the scene):
     train_json_file = blender_train_json if blender_train_json is not None else "transforms_train.json"
     print(f"Reading Training Transforms from {train_json_file} ", end=' ')
     train_cam_infos = readCamerasFromTransforms(
@@ -296,22 +297,37 @@ def readNerfSyntheticInfo(path, white_background, eval, extension=".png",train_n
         # Since this data set has no colmap data, we start with random points
         num_pts = 100_000
         print(f"Generating random point cloud ({num_pts})...")
-        
-        # We create random points inside the bounds of the synthetic Blender scenes
-        if len(blender_bbox)==0:
-            radius = blender_bbox[0]
-            xyz = np.random.random((num_pts, 3)) * (2*radius) - radius
+        if sample_from_pcd != '':
+            plydata = PlyData.read(sample_from_pcd)
+            vertices = plydata['vertex']
+            xyz = np.vstack(
+                [vertices['x'], vertices['y'], vertices['z']]).T
+            num_pts = min(num_pts, xyz.shape[0])
+            sample_indices = np.random.choice(
+                xyz.shape[0], size=[num_pts], replace=False)
+            xyz = xyz[sample_indices, :]
+            print(f"Sampling {num_pts} points from {sample_from_pcd}...")
+            shs = np.random.random((num_pts, 3)) / 255.0
+            pcd = BasicPointCloud(points=xyz, colors=SH2RGB(
+                shs), normals=np.zeros((num_pts, 3)))
+            ply_path = os.path.join(path, "random_sample_from_pcd.ply")
+            storePly(ply_path, xyz, SH2RGB(shs) * 255)
         else:
-            x_max, y_max, z_max, x_min, y_min, z_min = blender_bbox
-            D = np.array([float(x_max)-float(x_min), float(y_max)-float(y_min), float(z_max)-float(z_min)])
-            xyz_min = np.array([float(x_min), float(y_min), float(z_min)])
-            xyz = np.random.random((num_pts, 3)) * D + xyz_min
-        shs = np.random.random((num_pts, 3)) / 255.0
-        pcd = BasicPointCloud(points=xyz, colors=SH2RGB(shs), normals=np.zeros((num_pts, 3)))
+            # We create random points inside the bounds of the synthetic Blender scenes
+            if len(blender_bbox)==0:
+                radius = blender_bbox[0]
+                xyz = np.random.random((num_pts, 3)) * (2*radius) - radius
+            else:
+                x_max, y_max, z_max, x_min, y_min, z_min = blender_bbox
+                D = np.array([float(x_max)-float(x_min), float(y_max)-float(y_min), float(z_max)-float(z_min)])
+                xyz_min = np.array([float(x_min), float(y_min), float(z_min)])
+                xyz = np.random.random((num_pts, 3)) * D + xyz_min
+            shs = np.random.random((num_pts, 3)) / 255.0
+            pcd = BasicPointCloud(points=xyz, colors=SH2RGB(shs), normals=np.zeros((num_pts, 3)))
 
-        #By Yutong, we refrain from storing the point cloud of random pcd in the data dir as points3d.ply
-        ply_path = os.path.join(path, "random_bbox.ply")
-        storePly(ply_path, xyz, SH2RGB(shs) * 255) 
+            #By Yutong, we refrain from storing the point cloud of random pcd in the data dir as points3d.ply
+            ply_path = os.path.join(path, "random_bbox.ply")
+            storePly(ply_path, xyz, SH2RGB(shs) * 255) 
     try:
         pcd = fetchPly(ply_path)
     except:

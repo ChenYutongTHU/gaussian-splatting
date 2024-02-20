@@ -69,6 +69,8 @@ class ModelParams(ParamGroup):
         self.minus_depth = 0.0
         self.dataset_type = "list"
         self.blender_bbox = [1.3]
+        self.sample_from_pcd = ""
+        self.dataset_sourcetype = "blender" #for Sugar
         super().__init__(parser, "Loading Parameters", sentinel)
 
     def extract(self, args):
